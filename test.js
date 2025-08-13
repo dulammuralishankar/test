@@ -144,6 +144,7 @@ try {
 }
 
 if (isJson && (context.getVariable("message.content").indexOf("{") > -1 && maskElementKeys.length > 0)) {
+    var jsonMaskingUtility = new JsonMaskingUtility();
     context.setVariable("api_mask_payload", jsonMaskingUtility.mask(parseJsonObj, maskElementKeys, mask_all_chars));
 } else if (isUrlEncoded && maskElementKeys.length > 0) {
     var maskedUrlObj = jsonMaskingUtility.mask(parseUrlObj, maskElementKeys, mask_all_chars);
@@ -155,3 +156,7 @@ if (isJson && (context.getVariable("message.content").indexOf("{") > -1 && maskE
 if (!isPayloadAvailable && (context.getVariable("message.content").indexOf("{") == -1)) {
     context.setVariable("api_mask_payload", null);
 }
+
+
+
+
