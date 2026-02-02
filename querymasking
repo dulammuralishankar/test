@@ -1,0 +1,34 @@
+var maskVar = context.getVariable(“query_mask_elements");
+var maskArray = [];
+if (maskVar) {
+    maskArray = (typeof maskVar === 'string') ? maskVar.split(" ") : maskVar;
+}
+
+var qpNames = context.getVariable("request.queryparams.names");
+
+if (qpNames !== null && qpNames !== undefined) {
+    var namesArray = qpNames.toArray(); 
+    
+    for (var i = 0; i < namesArray.length; i++) {
+        var name = String(namesArray[i]);
+        
+      
+        if (maskArray.indexOf(name) !== -1) {
+            var originalVal = context.getVariable("request.queryparam." + name);
+            
+           
+            if (originalVal !== null) {
+                context.setVariable("request.queryparam." + name, applyMask(originalVal));
+            }
+        }
+    }
+}
+
+function applyMask(val) {
+    if (!val) return "#####";
+    var str = String(val);
+    var prefix = (str.length > 4) ? str.substring(0, 4) : 
+                 ((str.length === 4) ? str.substring(0, 2) : 
+                 ((str.length === 3) ? str.substring(0, 1) : ""));
+    return prefix + "#####";
+}
