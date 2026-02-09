@@ -1,3 +1,34 @@
+try {
+    // 1. Get the JSON string from an Apigee flow variable
+    // Change 'my_json_variable' to the actual variable name holding your JSON
+    var jsonString = context.getVariable("my_json_variable");
+
+    if (jsonString) {
+        // 2. Parse the JSON string
+        var payload = JSON.parse(jsonString);
+
+        // 3. Iterate through keys and set variables
+        for (var key in payload) {
+            if (payload.hasOwnProperty(key)) {
+                var value = payload[key];
+                
+                // If the value is an object/array, stringify it before saving to context
+                if (typeof value === 'object' && value !== null) {
+                    value = JSON.stringify(value);
+                }
+                
+                // 4. Set the variable: e.g., product.name, product.pin
+                context.setVariable("product." + key, value);
+            }
+        }
+    }
+} catch (e) {
+    // Handle JSON parsing errors or other runtime issues
+    context.setVariable("js_error_message", e.message);
+    print("Error in JS policy: " + e.message);
+}
+
+#############################################################################################
 /* JS to mask specified fields in payload */
 function JsonMaskingUtility() {
     this.isMaskable = function (key) {
