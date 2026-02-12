@@ -1,4 +1,38 @@
 try {
+
+    function processJsonVariable(sourceVarName, targetPrefix) {
+        var jsonString = context.getVariable(sourceVarName);
+
+        if (!jsonString) {
+            return;
+        }
+
+        var payload = JSON.parse(jsonString);
+
+        for (var key in payload) {
+            if (payload.hasOwnProperty(key)) {
+                var value = payload[key];
+
+                if (typeof value === 'object' && value !== null) {
+                    value = JSON.stringify(value);
+                }
+
+                context.setVariable(targetPrefix + "." + key, value);
+            }
+        }
+    }
+
+    // Call it for different variables
+    processJsonVariable("my_json_variable", "apiproduct");
+    processJsonVariable("my_json_variable2", "apiproduct");
+
+} catch (e) {
+    context.setVariable("js_error_message", e.message);
+    print("Error in JS policy: " + e.message);
+}
+
+#############################################################################################
+try {
     // 1. Get the JSON string from an Apigee flow variable
     // Change 'my_json_variable' to the actual variable name holding your JSON
     var jsonString = context.getVariable("my_json_variable");
