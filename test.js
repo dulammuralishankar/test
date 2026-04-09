@@ -1,5 +1,5 @@
 function safeSet(target, key, value) {
-  if (value !== null     &&
+  if (value !== null      &&
       value !== undefined &&
       value !== ""        &&
       value !== "null"    &&
@@ -8,19 +8,21 @@ function safeSet(target, key, value) {
   }
 }
 
-// ─── Build payload ────────────────────────────────────────────
+// ─── Read ─────────────────────────────────────────────────────
 var payload = {};
+try {
+  payload = JSON.parse(context.getVariable("request.content"));
+} catch (e) {
+  context.setVariable("patch.error", e.message);
+}
 
-safeSet(payload, "userId",       "12345");
-safeSet(payload, "userName",     "murali");
+// ─── Patch ───────────────────────────────────────────────────
 safeSet(payload, "channel",      "mobile");
 safeSet(payload, "environment",  "prod");
 safeSet(payload, "sourceSystem", "apigee-gateway");
 safeSet(payload, "apiVersion",   "2026-01");
-safeSet(payload, "emptyField",   "");        // ← skipped
-safeSet(payload, "nullField",    null);      // ← skipped
-safeSet(payload, "nullString",   "null");    // ← skipped
 
+// ─── Write to payload.merged ──────────────────────────────────
 context.setVariable("payload.merged", JSON.stringify(payload));
 
 #############################################################################################
