@@ -9,11 +9,24 @@ function safeSet(target, key, value) {
 }
 
 // ─── Read ─────────────────────────────────────────────────────
+// var payload = {};
+// try {
+//   payload = JSON.parse(context.getVariable("request.content"));
+// } catch (e) {
+//   context.setVariable("patch.error", e.message);
+// }
+
+
 var payload = {};
 try {
-  payload = JSON.parse(context.getVariable("request.content"));
+  var rawPayload = context.getVariable("payload");
+  if (rawPayload !== null && rawPayload !== "" && rawPayload !== "null") {
+    payload = JSON.parse(rawPayload);
+  }
 } catch (e) {
-  context.setVariable("patch.error", e.message);
+  context.setVariable("debug.payload.raw", String(rawPayload));
+  context.setVariable("debug.payload.error", e.message);
+  payload = {};
 }
 
 // ─── Patch ───────────────────────────────────────────────────
