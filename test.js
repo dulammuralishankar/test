@@ -1,3 +1,29 @@
+function safeSet(target, key, value) {
+  if (value !== null     &&
+      value !== undefined &&
+      value !== ""        &&
+      value !== "null"    &&
+      value !== "undefined") {
+    target[key] = value;
+  }
+}
+
+// ─── Build payload ────────────────────────────────────────────
+var payload = {};
+
+safeSet(payload, "userId",       "12345");
+safeSet(payload, "userName",     "murali");
+safeSet(payload, "channel",      "mobile");
+safeSet(payload, "environment",  "prod");
+safeSet(payload, "sourceSystem", "apigee-gateway");
+safeSet(payload, "apiVersion",   "2026-01");
+safeSet(payload, "emptyField",   "");        // ← skipped
+safeSet(payload, "nullField",    null);      // ← skipped
+safeSet(payload, "nullString",   "null");    // ← skipped
+
+context.setVariable("payload.merged", JSON.stringify(payload));
+
+#############################################################################################
 try {
 
     function processJsonVariable(sourceVarName, targetPrefix) {
