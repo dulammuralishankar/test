@@ -191,12 +191,12 @@ function calcProcessTimes() {
   return { req: req_process_time, res: res_process_time, total: apigee_total_process_time };
 }
 
-// ─── Accumulators — declared BEFORE loop ─────────────────────
+// ─── Accumulators ────────────────────────────────────────────
 var log_message        = "";
 var splunk_log_message = "";
 
-// ─── Parse payload array ─────────────────────────────────────
-var payloadRaw   = context.getVariable("payload");
+// ─── KEY FIX: read from api_mask_payload not payload ─────────
+var payloadRaw   = context.getVariable("api_mask_payload");
 var payloadArray = [];
 try {
   var parsedPayload = payloadRaw ? JSON.parse(payloadRaw) : [];
