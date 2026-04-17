@@ -13,9 +13,7 @@ function isArray(obj) {
 
 function shallowCopy(target, source) {
   for (var key in source) {
-    if (source.hasOwnProperty(key)) {
-      target[key] = source[key];
-    }
+    if (source.hasOwnProperty(key)) { target[key] = source[key]; }
   }
   return target;
 }
@@ -24,10 +22,18 @@ function getElkFormattedTime(date) {
   return date ? date.toISOString() : null;
 }
 
+// ─── safe null concat ─────────────────────────────────────────
+function safeConcat(a, b) {
+  return (a !== null && a !== undefined ? a : "") +
+         (b !== null && b !== undefined ? b : "");
+}
+
 // ─── Read common variables ────────────────────────────────────
 var host_name           = null;
 var proxy_url           = context.getVariable('request.header.host_name');
-var paa_logging_enabled = context.getVariable('paa_logging_enabled');
+
+// FIX 1: default paa_logging_enabled to "false" when null
+var paa_logging_enabled = context.getVariable('paa_logging_enabled') || "false";
 
 if (proxy_url) {
   var tmp_array = proxy_url.match(/^[^:]*:\/\/([^\/]+)(\/.*)?$/);
@@ -69,8 +75,9 @@ if (api && startsWith(api, "OBEU-")) {
   entity_id = context.getVariable('request.header.gateway-entity-id');
 }
 
+// FIX 2: null guard on query_string before .length
 var query_string = context.getVariable('request.header.request_querystring');
-if (query_string !== null) {
+if (query_string !== null && query_string !== undefined) {
   query_string = query_string.length === 0 ? null : query_string;
 }
 
@@ -129,7 +136,8 @@ if (paa_logging_enabled !== "false") {
   paa_log_object.httpQueryParams      = query_string;
   paa_log_object.httpMethod           = context.getVariable('request.header.request_verb');
   paa_log_object.httpRelativePath     = context.getVariable('request.header.api_resource');
-  paa_log_object.payload              = context.getVariable('api_mask_payload');
+  // FIX 3: payload NOT set here — was causing size explosion
+  // payload is set per log_type inside the loop via resolvePayload()
 }
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -143,7 +151,6 @@ function extractErrors() {
   var api_error_message = null;
   var api_error_code    = null;
   var statusCode        = context.getVariable('request.header.response_status_code');
-
   if (statusCode !== null && statusCode !== "" && !statusCode.match(/2[0-9][0-9]/)) {
     var error_obj = context.getVariable('request.content');
     if (error_obj && error_obj !== "null" && error_obj.trim() !== "") {
@@ -180,7 +187,6 @@ function calcProcessTimes() {
   var target_recv = Number(context.getVariable('request.header.target_recived_time'));
   var res_end     = Number(context.getVariable('request.header.res_end_time'));
   var client_recv = Number(context.getVariable('request.header.client_recived_time'));
-
   if (target_sent && target_recv) {
     req_process_time          = target_sent - client_recv;
     res_process_time          = res_end - target_recv;
@@ -198,26 +204,18 @@ var splunk_log_message = "";
 // ─── Parse payload — handle JSON array, JSON object, XML ─────
 var payloadRaw   = context.getVariable("api_mask_payload");
 var payloadArray = [];
-
 try {
   if (payloadRaw && payloadRaw.trim() !== "") {
     var trimmed = payloadRaw.trim();
-
     if (trimmed.charAt(0) === '[') {
-      // JSON array
       payloadArray = JSON.parse(trimmed);
-
     } else if (trimmed.charAt(0) === '{') {
-      // Single JSON object
       payloadArray = [JSON.parse(trimmed)];
-
     } else if (trimmed.charAt(0) === '<') {
-      // XML — single entry, raw XML string as payload
       payloadArray = [{
         log_type: context.getVariable("request.header.log_type") || "request",
         payload:  trimmed
       }];
-
     } else {
       context.setVariable("debug.payload.unknown.format", trimmed.substring(0, 100));
     }
@@ -228,7 +226,6 @@ try {
     log_type: context.getVariable("request.header.log_type") || "request"
   }];
 }
-
 if (!isArray(payloadArray)) {
   payloadArray = [payloadArray];
 }
@@ -242,8 +239,8 @@ for (var idx = 0; idx < payloadArray.length; idx++) {
     log_object.a_log_type         = "Request";
     log_object.a_query_parameters = query_string;
     log_object.a_endpoint         = context.getVariable('request.header.api_basepath');
-    log_object.a_api_resource     = context.getVariable('request.header.api_basepath') +
-                                    context.getVariable('request.header.api_resource');
+    log_object.a_api_resource     = safeConcat(context.getVariable('request.header.api_basepath'),
+                                               context.getVariable('request.header.api_resource'));
     log_object.a_http_method      = context.getVariable('request.header.request_verb');
     log_message += "\n" + JSON.stringify(log_object);
 
@@ -255,9 +252,14 @@ for (var idx = 0; idx < payloadArray.length; idx++) {
       debug_log_object.a_request_body    = context.getVariable('api_request_mask_payload');
       log_message += "\n" + JSON.stringify(debug_log_object);
     }
+    // FIX 4: paa block wrapped in try/catch — crash here no longer kills log_message
     if (paa_logging_enabled !== "false") {
-      paa_log_object.logEventType = 'RequestReceive';
-      splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      try {
+        paa_log_object.logEventType = 'RequestReceive';
+        splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      } catch (paaErr) {
+        context.setVariable("debug.paa.error." + idx, paaErr.message);
+      }
     }
 
   } else if (log_type === 'response') {
@@ -276,8 +278,8 @@ for (var idx = 0; idx < payloadArray.length; idx++) {
     log_object.a_apigee_res_process_time   = processTimes.res;
     log_object.a_apigee_total_process_time = processTimes.total;
     log_object.a_api_responsetime          = context.getVariable('request.header.total_process_time');
-    log_object.a_api_resource              = context.getVariable('request.header.api_basepath') +
-                                             context.getVariable('request.header.api_resource');
+    log_object.a_api_resource              = safeConcat(context.getVariable('request.header.api_basepath'),
+                                                        context.getVariable('request.header.api_resource'));
     log_object.a_api_available_calls       = context.getVariable('request.header.available_calls');
     log_object.a_api_used_calls            = context.getVariable('request.header.used_calls');
     log_object.a_api_allowed_calls         = context.getVariable('request.header.allowed_calls');
@@ -295,11 +297,15 @@ for (var idx = 0; idx < payloadArray.length; idx++) {
       log_message += "\n" + JSON.stringify(debug_log_object);
     }
     if (paa_logging_enabled !== "false") {
-      paa_log_object.logEventType          = 'ResponseTransmit';
-      paa_log_object["HTTP response code"] = context.getVariable('request.header.response_status_code');
-      paa_log_object["API response time"]  = context.getVariable('request.header.total_process_time');
-      paa_log_object.payload               = resolvePayload();
-      splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      try {
+        paa_log_object.logEventType          = 'ResponseTransmit';
+        paa_log_object["HTTP response code"] = context.getVariable('request.header.response_status_code');
+        paa_log_object["API response time"]  = context.getVariable('request.header.total_process_time');
+        paa_log_object.payload               = resolvePayload();
+        splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      } catch (paaErr) {
+        context.setVariable("debug.paa.error." + idx, paaErr.message);
+      }
     }
 
   } else if (log_type === 'fault') {
@@ -321,8 +327,8 @@ for (var idx = 0; idx < payloadArray.length; idx++) {
 
     log_object.a_log_type                       = "Error";
     log_object.a_log_level                      = "Error";
-    log_object.a_api_resource                   = context.getVariable('request.header.api_basepath') +
-                                                  context.getVariable('request.header.api_resource');
+    log_object.a_api_resource                   = safeConcat(context.getVariable('request.header.api_basepath'),
+                                                             context.getVariable('request.header.api_resource'));
     log_object.a_error_message                  = context.getVariable('request.header.error_description');
     log_object.a_api_error_code                 = context.getVariable('request.header.error_code');
     log_object.a_http_response_code             = context.getVariable('request.header.http_status_code');
@@ -330,16 +336,20 @@ for (var idx = 0; idx < payloadArray.length; idx++) {
     log_message += "\n" + JSON.stringify(log_object);
 
     if (paa_logging_enabled !== "false") {
-      paa_log_object.logEventType          = 'Error';
-      paa_log_object.level                 = 'Error';
-      paa_log_object["HTTP response code"] = context.getVariable('request.header.http_status_code');
-      if (context.getVariable('request.header.http_status_code') === '401' ||
-          context.getVariable('request.header.http_status_code') === '403') {
-        paa_log_object.AuthStatus = "Authorization Failed";
-      } else {
-        paa_log_object.stackTrace = context.getVariable('request.header.error_description');
+      try {
+        paa_log_object.logEventType          = 'Error';
+        paa_log_object.level                 = 'Error';
+        paa_log_object["HTTP response code"] = context.getVariable('request.header.http_status_code');
+        if (context.getVariable('request.header.http_status_code') === '401' ||
+            context.getVariable('request.header.http_status_code') === '403') {
+          paa_log_object.AuthStatus = "Authorization Failed";
+        } else {
+          paa_log_object.stackTrace = context.getVariable('request.header.error_description');
+        }
+        splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      } catch (paaErr) {
+        context.setVariable("debug.paa.error." + idx, paaErr.message);
       }
-      splunk_log_message += "\n" + JSON.stringify(paa_log_object);
     }
 
   } else if (log_type === 'BackendRequest') {
@@ -361,9 +371,13 @@ for (var idx = 0; idx < payloadArray.length; idx++) {
       log_message += "\n" + JSON.stringify(debug_log_object);
     }
     if (paa_logging_enabled !== "false") {
-      paa_log_object.logEventType = 'RequestReceive';
-      paa_log_object.payload      = resolvePayload();
-      splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      try {
+        paa_log_object.logEventType = 'RequestReceive';
+        paa_log_object.payload      = resolvePayload();
+        splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      } catch (paaErr) {
+        context.setVariable("debug.paa.error." + idx, paaErr.message);
+      }
     }
 
   } else if (log_type === 'BackendResponse') {
@@ -386,22 +400,26 @@ for (var idx = 0; idx < payloadArray.length; idx++) {
       log_message += "\n" + JSON.stringify(debug_log_object);
     }
     if (paa_logging_enabled !== "false") {
-      var baknd_identifier   = context.getVariable('request.header.backend_identifier');
-      var new_log_event_type = (baknd_identifier && baknd_identifier === 'Mediation_DB_Response')
-                               ? 'Mediation_DB_Response' : 'ResponseReceive';
-      paa_log_object.logEventType          = new_log_event_type;
-      paa_log_object["HTTP response code"] = context.getVariable('request.header.response_status_code');
-      paa_log_object["API response time"]  = context.getVariable('request.header.total_process_time');
-      paa_log_object.payload               = resolvePayload();
-      splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      try {
+        var baknd_identifier   = context.getVariable('request.header.backend_identifier');
+        var new_log_event_type = (baknd_identifier && baknd_identifier === 'Mediation_DB_Response')
+                                 ? 'Mediation_DB_Response' : 'ResponseReceive';
+        paa_log_object.logEventType          = new_log_event_type;
+        paa_log_object["HTTP response code"] = context.getVariable('request.header.response_status_code');
+        paa_log_object["API response time"]  = context.getVariable('request.header.total_process_time');
+        paa_log_object.payload               = resolvePayload();
+        splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      } catch (paaErr) {
+        context.setVariable("debug.paa.error." + idx, paaErr.message);
+      }
     }
 
   } else if (log_type === 'PreRequest') {
     log_object.a_log_type         = "PreRequest";
     log_object.a_query_parameters = query_string;
     log_object.a_endpoint         = context.getVariable('request.header.api_basepath');
-    log_object.a_api_resource     = context.getVariable('request.header.api_basepath') +
-                                    context.getVariable('request.header.api_resource');
+    log_object.a_api_resource     = safeConcat(context.getVariable('request.header.api_basepath'),
+                                               context.getVariable('request.header.api_resource'));
     log_object.a_http_method      = context.getVariable('request.header.request_verb');
     log_message += "\n" + JSON.stringify(log_object);
 
@@ -414,16 +432,20 @@ for (var idx = 0; idx < payloadArray.length; idx++) {
       log_message += "\n" + JSON.stringify(debug_log_object);
     }
     if (paa_logging_enabled !== "false") {
-      paa_log_object.logEventType = 'PreRequestReceive';
-      splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      try {
+        paa_log_object.logEventType = 'PreRequestReceive';
+        splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      } catch (paaErr) {
+        context.setVariable("debug.paa.error." + idx, paaErr.message);
+      }
     }
 
   } else if (log_type === 'resource') {
     log_object.a_log_type         = "Resource";
     log_object.a_query_parameters = query_string;
     log_object.a_endpoint         = context.getVariable('request.header.api_basepath');
-    log_object.a_api_resource     = context.getVariable('request.header.api_basepath') +
-                                    context.getVariable('request.header.api_resource');
+    log_object.a_api_resource     = safeConcat(context.getVariable('request.header.api_basepath'),
+                                               context.getVariable('request.header.api_resource'));
     log_object.a_http_method      = context.getVariable('request.header.request_verb');
     log_message += "\n" + JSON.stringify(log_object);
 
@@ -440,8 +462,8 @@ for (var idx = 0; idx < payloadArray.length; idx++) {
     log_object.a_log_type               = "AM2IS";
     log_object.a_query_parameters       = query_string;
     log_object.a_endpoint               = context.getVariable('request.header.api_basepath');
-    log_object.a_api_resource           = context.getVariable('request.header.api_basepath') +
-                                          context.getVariable('request.header.api_resource');
+    log_object.a_api_resource           = safeConcat(context.getVariable('request.header.api_basepath'),
+                                                     context.getVariable('request.header.api_resource'));
     log_object.a_http_method            = context.getVariable('request.header.request_verb');
     log_object.a_backend_identifier     = context.getVariable('request.header.backend_identifier');
     log_object.a_backend_url            = context.getVariable('request.header.backend_url');
@@ -463,9 +485,13 @@ for (var idx = 0; idx < payloadArray.length; idx++) {
       log_message += "\n" + JSON.stringify(debug_log_object);
     }
     if (paa_logging_enabled !== "false") {
-      paa_log_object.logEventType = 'RequestTransmit';
-      paa_log_object.payload      = resolvePayload();
-      splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      try {
+        paa_log_object.logEventType = 'RequestTransmit';
+        paa_log_object.payload      = resolvePayload();
+        splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      } catch (paaErr) {
+        context.setVariable("debug.paa.error." + idx, paaErr.message);
+      }
     }
 
   } else if (log_type === 'IS2AM') {
@@ -488,8 +514,8 @@ for (var idx = 0; idx < payloadArray.length; idx++) {
     log_object.a_backend_url               = context.getVariable('request.header.backend_url');
     log_object.a_processing_time           = context.getVariable('request.header.a_processing_time');
     log_object.a_endpoint                  = context.getVariable('request.header.api_basepath');
-    log_object.a_api_resource              = context.getVariable('request.header.api_basepath') +
-                                             context.getVariable('request.header.api_resource');
+    log_object.a_api_resource              = safeConcat(context.getVariable('request.header.api_basepath'),
+                                                        context.getVariable('request.header.api_resource'));
     log_object.a_api_available_calls       = context.getVariable('request.header.available_calls');
     log_object.a_api_used_calls            = context.getVariable('request.header.used_calls');
     log_object.a_api_allowed_calls         = context.getVariable('request.header.allowed_calls');
@@ -507,19 +533,23 @@ for (var idx = 0; idx < payloadArray.length; idx++) {
       log_message += "\n" + JSON.stringify(debug_log_object);
     }
     if (paa_logging_enabled !== "false") {
-      paa_log_object.logEventType          = 'ResponseReceive';
-      paa_log_object["HTTP response code"] = context.getVariable('request.header.response_status_code');
-      paa_log_object["API response time"]  = context.getVariable('request.header.total_process_time');
-      paa_log_object.payload               = resolvePayload();
-      splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      try {
+        paa_log_object.logEventType          = 'ResponseReceive';
+        paa_log_object["HTTP response code"] = context.getVariable('request.header.response_status_code');
+        paa_log_object["API response time"]  = context.getVariable('request.header.total_process_time');
+        paa_log_object.payload               = resolvePayload();
+        splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      } catch (paaErr) {
+        context.setVariable("debug.paa.error." + idx, paaErr.message);
+      }
     }
 
   } else if (log_type === 'AM2Java') {
     log_object.a_log_type         = "AM2Java";
     log_object.a_query_parameters = query_string;
     log_object.a_endpoint         = context.getVariable('request.header.api_basepath');
-    log_object.a_api_resource     = context.getVariable('request.header.api_basepath') +
-                                    context.getVariable('request.header.api_resource');
+    log_object.a_api_resource     = safeConcat(context.getVariable('request.header.api_basepath'),
+                                               context.getVariable('request.header.api_resource'));
     log_object.a_http_method      = context.getVariable('request.header.request_verb');
     log_message += "\n" + JSON.stringify(log_object);
 
@@ -532,8 +562,12 @@ for (var idx = 0; idx < payloadArray.length; idx++) {
       log_message += "\n" + JSON.stringify(debug_log_object);
     }
     if (paa_logging_enabled !== "false") {
-      paa_log_object.logEventType = 'AM2JavaAudit';
-      splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      try {
+        paa_log_object.logEventType = 'AM2JavaAudit';
+        splunk_log_message += "\n" + JSON.stringify(paa_log_object);
+      } catch (paaErr) {
+        context.setVariable("debug.paa.error." + idx, paaErr.message);
+      }
     }
   }
 
@@ -542,7 +576,6 @@ for (var idx = 0; idx < payloadArray.length; idx++) {
 // ─── Set ONCE after loop ─────────────────────────────────────
 context.setVariable("log_message",        log_message);
 context.setVariable("splunk_log_message", splunk_log_message);
-
 
 // #################################################################
 // ###################PREVIOUSLY IN commonlog.js ##################
