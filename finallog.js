@@ -65,4 +65,26 @@ safeSet(localPayloadObj, "app_id",               context.getVariable("apiproduct
 safeSet(localPayloadObj, "api_resource",         context.getVariable("path_for_logging"));
 safeSet(localPayloadObj, "api_name",             context.getVariable("apiproxy.name"));
 safeSet(localPayloadObj, "total_process_time",   context.getVariable("status_code"));
-safeSet(localPayloa
+safeSet(localPayloadObj, "response_status_code", context.getVariable("status_code"));
+safeSet(localPayloadObj, "api_resourse",         context.getVariable("api_resourse"));
+safeSet(localPayloadObj, "host_name",            context.getVariable("proxy.url"));
+safeSet(localPayloadObj, "request_verb",         context.getVariable("request.verb"));
+safeSet(localPayloadObj, "res_end_time",         context.getVariable("system.timestamp"));
+safeSet(localPayloadObj, "mask_all_chars",       context.getVariable("client.received.end.timestamp"));
+safeSet(localPayloadObj, "target_sent_time",     context.getVariable("target.sent.end.timestamp"));
+safeSet(localPayloadObj, "target_recived_time",  context.getVariable("target.sent.end.timestamp"));
+safeSet(localPayloadObj, "available_calls",      context.getVariable("available_calls"));
+safeSet(localPayloadObj, "used_calls",           context.getVariable("used_calls"));
+safeSet(localPayloadObj, "allowed_calls",        context.getVariable("allowed_calls"));
+safeSet(localPayloadObj, "exceed_calls",         context.getVariable("exceed_calls"));
+safeSet(localPayloadObj, "total_exceed_calls",   context.getVariable("total_exceed_calls"));
+safeSet(localPayloadObj, "quota_expiry_time",    context.getVariable("quota_expiry_time"));
+safeSet(localPayloadObj, "json_log_elements",    context.getVariable("json_log_elements"));
+safeSet(localPayloadObj, "path_log_elements",    context.getVariable("path_log_elements"));
+safeSet(localPayloadObj, "query_log_elements",   context.getVariable("query_log_elements"));
+safeSet(localPayloadObj, "request_resource_path",context.getVariable("proxy.pathsuffix"));
+
+payload.push(localPayloadObj);
+
+// ── Write to payload ──────────────────────────────────────────
+context.setVariable("payload", JSON.stringify(payload));
